@@ -93,4 +93,38 @@ def detect(run_dir: Path) -> dict:
         "leaks_witnessed": len(witnessed),
         "contradictions": contradictions,
         "witnesses": witnessed,
+        "edits": stale_records(run_dir, log),
     }
+
+
+def stale_records(run_dir: Path, log: list[dict] | None = None) -> list[dict]:
+    """O4 ground truth: for each simulator edit, which agent records still
+    carry the pre-edit content? In unpatched mode these are the out-of-scope
+    records H3 predicts the investigator needs; in patched mode the sweep
+    should leave none (paraphrases that survive an exact-string sweep would
+    show up here — itself a finding)."""
+    import json as _json
+
+    if log is None:
+        log = GodLog.read(Path(run_dir) / "god_log.jsonl")
+    edit_events = [e for e in log if e["event_type"] == "edit"]
+    if not edit_events:
+        return []
+
+    memories = {}
+    for mf in sorted((Path(run_dir) / "memories").glob("*.jsonl")):
+        memories[mf.stem] = [_json.loads(l) for l in mf.read_text().splitlines() if l.strip()]
+
+    results = []
+    for e in edit_events:
+        stale = []
+        for agent_slug, entries in memories.items():
+            for m in entries:
+                if e["old_content"] in m["text"]:
+                    stale.append({"agent": agent_slug, "memory_id": m["id"],
+                                  "kind": m["kind"], "memory_tick": m["tick"]})
+        results.append({
+            "fact_key": e["fact_key"], "tick": e["tick"], "mode": e["mode"],
+            "stale_record_count": len(stale), "stale_records": stale,
+        })
+    return results

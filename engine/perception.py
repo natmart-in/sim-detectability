@@ -29,10 +29,11 @@ class ObservationPacket:
 
 
 class Perception:
-    def __init__(self, world: World, clock: SimClock, godlog: GodLog):
+    def __init__(self, world: World, clock: SimClock, godlog: GodLog, facts=None):
         self.world = world
         self.clock = clock
         self.godlog = godlog
+        self.facts = facts  # FactStore; bound by the Runner after construction
         self._counter = 0
 
     def _next_id(self) -> str:
@@ -53,10 +54,16 @@ class Perception:
         people = [a for a in self.world.agents_at(loc.id) if a != agent]
         oid = self._next_id()
 
+        loc_desc, loc_prov = self.facts.get(f"loc:{loc.id}:desc")
         parts = [f"[{oid}] {self.clock.time_label()}.",
-                 f"You are at {loc.name}.", loc.description]
-        if objects:
-            parts.append("You can see " + ", ".join(o.name for o in objects) + ".")
+                 f"You are at {loc.name}.", loc_desc]
+        pieces = [{"fact_key": f"loc:{loc.id}:desc", "provenance": loc_prov,
+                   "h": content_hash(loc_desc)}]
+        for o in objects:
+            detail, prov = self.facts.get(f"obj:{o.id}")
+            parts.append(f"{o.name.capitalize()}: {detail}")
+            pieces.append({"fact_key": f"obj:{o.id}", "provenance": prov,
+                           "h": content_hash(detail)})
         if docs:
             parts.append("Available to read here: " + ", ".join(d.title for d in docs) + ".")
         parts.append(
@@ -64,10 +71,6 @@ class Perception:
         )
         text = " ".join(parts)
 
-        pieces = [{"fact_key": f"loc:{loc.id}:desc", "provenance": "eager",
-                   "h": content_hash(loc.description)}]
-        pieces += [{"fact_key": f"obj:{o.id}", "provenance": "eager",
-                    "h": content_hash([o.description, o.state])} for o in objects]
         pieces += [{"fact_key": f"presence:{p}", "provenance": "eager",
                     "h": content_hash(p)} for p in people]
         self._log(oid, agent, f"location:{loc.id}", pieces)
@@ -77,11 +80,12 @@ class Perception:
         doc = self.world.documents[doc_id]
         loc = self.world.locations[self.world.agent_positions[agent]]
         oid = self._next_id()
+        content, prov = self.facts.get(f"doc:{doc_id}:content", trigger="read")
         text = (f"[{oid}] {self.clock.time_label()}. At {loc.name} you read "
-                f"{doc.title}. It says: {doc.content}")
+                f"{doc.title}. It says: {content}")
         self._log(oid, agent, f"document:{doc_id}",
-                  [{"fact_key": f"doc:{doc_id}:content", "provenance": "eager",
-                    "h": content_hash(doc.content)}])
+                  [{"fact_key": f"doc:{doc_id}:content", "provenance": prov,
+                    "h": content_hash(content)}])
         return ObservationPacket(id=oid, agent=agent, tick=self.clock.tick, text=text)
 
     def observe_conversation(self, agent: str, partner: str,

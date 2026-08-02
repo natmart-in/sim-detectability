@@ -6,6 +6,7 @@ import yaml
 
 from engine.clock import SimClock
 from engine.engine import Runner
+from engine.facts import FactStore, ProceduralGenerator
 from engine.godlog import GodLog
 from engine.littlefield import build_world
 from engine.perception import Perception
@@ -18,7 +19,9 @@ def _mini_world(tmp_path):
     world, _ = build_world(["Mara Quill", "Edith Bramble"])
     clock = SimClock()
     godlog = GodLog(tmp_path / "god_log.jsonl")
-    return world, clock, godlog, Perception(world, clock, godlog)
+    perc = Perception(world, clock, godlog)
+    perc.facts = FactStore(world, {}, ProceduralGenerator(0), godlog, clock)
+    return world, clock, godlog, perc
 
 
 def test_injected_contradiction_is_caught(tmp_path):
@@ -28,7 +31,7 @@ def test_injected_contradiction_is_caught(tmp_path):
 
     # Simulate an unlogged regeneration: the chronicle silently changes.
     clock.tick = 10
-    world.documents["village_chronicle"].content = "A quite different history."
+    perc.facts.canon["doc:village_chronicle:content"] = "A quite different history."
     perc.read_document("Mara Quill", "village_chronicle")
     godlog.close()
 
@@ -48,9 +51,10 @@ def test_edit_between_sightings_is_classified_edit_stale(tmp_path):
     perc.read_document("Mara Quill", "village_chronicle")
 
     clock.tick = 5
+    old = perc.facts.apply_edit("doc:village_chronicle:content", "An edited history.")
     godlog.append(5, "edit", fact_key="doc:village_chronicle:content",
-                  mode="unpatched")
-    world.documents["village_chronicle"].content = "An edited history."
+                  mode="unpatched", old_content=old,
+                  new_content="An edited history.")
     clock.tick = 12
     perc.read_document("Mara Quill", "village_chronicle")
     godlog.close()
@@ -70,7 +74,7 @@ def test_world_change_legitimises_new_content(tmp_path):
     clock.tick = 8
     godlog.append(8, "world_change", fact_key="doc:noticeboard_notes:content",
                   cause="agent pinned a new notice")
-    world.documents["noticeboard_notes"].content = "New notice: barn dance on Sunday."
+    perc.facts.canon["doc:noticeboard_notes:content"] = "New notice: barn dance on Sunday."
     clock.tick = 16
     perc.read_document("Mara Quill", "noticeboard_notes")
     godlog.close()

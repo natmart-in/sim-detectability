@@ -85,6 +85,18 @@ class MemoryStream:
         self._fh.flush()
         return entry
 
+    def rewrite(self, entry_id: int, new_text: str):
+        """Simulator-side memory edit (O4 patched sweep). Rewrites the file."""
+        entry = self.entries[entry_id]
+        assert entry.id == entry_id
+        entry.text = new_text
+        if self._fh:
+            self._fh.close()
+        self._fh = open(self.path, "w", encoding="utf-8")
+        for e in self.entries:
+            self._fh.write(json.dumps(asdict(e), sort_keys=True, ensure_ascii=False) + "\n")
+        self._fh.flush()
+
     def score(self, entry: MemoryEntry, query_tokens: set[str], now_tick: int) -> float:
         recency = self.decay ** max(0, now_tick - entry.tick)
         etokens = tokenize(entry.text) | {p.lower() for p in entry.participants}

@@ -14,11 +14,14 @@ from agents.brain import LLMBrain, ScriptedBrain
 from agents.memory import MemoryStream
 from agents.villager import Villager
 
+from agents.brain import routine_to_plan
+
 from .clock import TICKS_PER_DAY, SimClock
+from .facts import FactStore, LLMGenerator, ProceduralGenerator
 from .godlog import GodLog
 from .littlefield import build_world
 from .llm import BudgetExceeded, LLMClient
-from .perception import Perception
+from .perception import Perception, content_hash
 from .rng import RngHub
 
 READING_WORDS = ("read", "record", "catalog", "research", "ledger", "archive", "marking")
@@ -85,6 +88,31 @@ class Runner:
         ]
         self.by_name = {v.name: v for v in self.villagers}
 
+        # ---- optimisation suite (O1-O5, PLAN.md 2.4) --------------------
+        opt = config.get("optimisations", {}) or {}
+        if opt.get("generator", "procedural") == "llm" and self.llm is not None:
+            generator = LLMGenerator(
+                self.llm, llm_cfg.get("world_model", llm_cfg.get("villager_model", "claude-sonnet-5")))
+        else:
+            generator = ProceduralGenerator(config["seed"])
+        self.facts = FactStore(self.world, opt, generator, self.godlog, self.clock)
+        self.perception.facts = self.facts
+
+        o4 = opt.get("o4_edits", {}) or {}
+        self.edit_mode = o4.get("mode", "off")
+        self.edit_schedule: dict[int, list[dict]] = {}
+        for e in o4.get("edits", []):
+            t = (e["day"] - 1) * TICKS_PER_DAY + int((e["hour"] - 6) * 4)
+            self.edit_schedule.setdefault(t, []).append(e)
+
+        o5 = opt.get("o5_culling", {}) or {}
+        self.culling_enabled = bool(o5.get("enabled", False))
+        self.attention_agents = set(o5.get("attention_agents", []))
+        self.culled: set[str] = set()
+        self._cull_since: dict[str, int] = {}
+
+        self.doc_read_chance = config.get("doc_read_chance", 0.25)
+
         d = config.get("dialogue", {})
         self.dlg_base_chance = d.get("base_chance", 0.10)
         self.dlg_social_chance = d.get("social_chance", 0.35)
@@ -112,11 +140,17 @@ class Runner:
             self.finalize(total)
 
     def tick_once(self):
+        self.apply_scheduled_edits()
+        if self.culling_enabled:
+            self.update_culling()
         if self.clock.is_day_start():
             self.transcript.write(f"\n## Day {self.clock.day}\n")
             self.morning_plans()
         for v in sorted(self.villagers, key=lambda v: v.name):
-            self.step_agent(v)
+            if v.name in self.culled:
+                self.step_culled(v)
+            else:
+                self.step_agent(v)
         self.dialogue_phase()
         if self.clock.is_day_end():
             self.evening_reflections()
@@ -125,11 +159,86 @@ class Runner:
             positions={k: v for k, v in sorted(self.world.agent_positions.items())},
         )
 
+    # ------------------------------------------------- optimisation suite
+
+    def apply_scheduled_edits(self):
+        """O4: simulator-side edits of established facts at scripted ticks."""
+        if self.edit_mode == "off":
+            return
+        for e in self.edit_schedule.pop(self.clock.tick, []):
+            key, new = e["target"], e["new_content"]
+            old = self.facts.apply_edit(key, new)
+            self.godlog.append(
+                self.clock.tick, "edit", fact_key=key, mode=self.edit_mode,
+                old_content=old, new_content=new,
+                old_h=content_hash(old), new_h=content_hash(new),
+            )
+            if self.edit_mode == "patched":
+                self.patch_sweep(key, old, new)
+
+    def patch_sweep(self, key: str, old: str, new: str):
+        """O4 patched mode: rewrite dependent records (agent memories) too."""
+        for v in sorted(self.villagers, key=lambda v: v.name):
+            for entry in v.memory.entries:
+                if old in entry.text:
+                    v.memory.rewrite(entry.id, entry.text.replace(old, new))
+                    self.godlog.append(self.clock.tick, "patch", fact_key=key,
+                                       agent=v.name, memory_id=entry.id)
+
+    def update_culling(self):
+        """O5: villagers outside any attention agent's location don't run."""
+        attn_locs = {
+            self.world.agent_positions[a]
+            for a in self.attention_agents if a in self.world.agent_positions
+        }
+        for v in sorted(self.villagers, key=lambda v: v.name):
+            attended = (v.name in self.attention_agents
+                        or self.world.agent_positions[v.name] in attn_locs)
+            if attended and v.name in self.culled:
+                start = self._cull_since.pop(v.name)
+                self.culled.discard(v.name)
+                summary = self.interim_summary(v, start, self.clock.tick)
+                v.memory.add(self.clock.tick, "cull_summary", summary)
+                self.godlog.append(self.clock.tick, "cull_end", agent=v.name,
+                                   from_tick=start, h=content_hash(summary))
+            elif not attended and v.name not in self.culled:
+                self.culled.add(v.name)
+                self._cull_since[v.name] = self.clock.tick
+                self.godlog.append(self.clock.tick, "cull_start", agent=v.name)
+
+    def interim_summary(self, v: Villager, start: int, end: int) -> str:
+        """Generated stand-in for the memories a culled villager never formed."""
+        s_tod, e_tod = start % TICKS_PER_DAY, end % TICKS_PER_DAY
+        acts = [step.activity for step in v.plan
+                if step.end_tick > s_tod and step.start_tick < max(e_tod, s_tod + 1)]
+        acts = acts or ["my usual round"]
+        base = (f"Since {6 + s_tod // 4}:00 or so I have been about my day as usual: "
+                + ", ".join(dict.fromkeys(acts)) + ".")
+        return self.facts.generator.generate(f"interim:{slug(v.name)}:{start}", base, 0)
+
+    def step_culled(self, v: Villager):
+        """Culled villagers keep moving along their plan (positions stay
+        consistent for others) but form no memories and perceive nothing."""
+        step = v.plan_step_at(self.clock.tick_of_day)
+        pos = self.world.agent_positions[v.name]
+        if pos != step.location:
+            nxt = self.world.path(pos, step.location)[0]
+            self.world.agent_positions[v.name] = nxt
+            self.godlog.append(self.clock.tick, "move", agent=v.name,
+                               frm=pos, to=nxt, culled=True)
+
     # --------------------------------------------------------------- phases
 
     def morning_plans(self):
         self.transcript.write("\n### Morning plans\n")
         for v in sorted(self.villagers, key=lambda v: v.name):
+            if v.name in self.culled:
+                # off-screen villagers don't run cognition: routine plan, no
+                # LLM call, no memory of having planned
+                v.plan = routine_to_plan(v.spec)
+                self.godlog.append(self.clock.tick, "plan", agent=v.name,
+                                   steps=[asdict(s) for s in v.plan], culled=True)
+                continue
             memory_texts = [
                 e.text for e in v.memory.retrieve("what I mean to do today", self.clock.tick, k=5)
             ]
@@ -169,7 +278,7 @@ class Runner:
 
         if any(w in step.activity.lower() for w in READING_WORDS):
             docs = self.world.documents_at(pos)
-            if docs and self.rng.stream("docs").random() < 0.25:
+            if docs and self.rng.stream("docs").random() < self.doc_read_chance:
                 doc = self.rng.stream("docs").choice(docs)
                 obs = self.perception.read_document(v.name, doc.id)
                 v.memory.add(tick, "document", obs.text, obs_ids=[obs.id])
@@ -178,7 +287,8 @@ class Runner:
         rng = self.rng.stream("dialogue")
         tick = self.clock.tick
         for loc_id in sorted(self.world.locations):
-            names = [n for n in self.world.agents_at(loc_id) if n in self.by_name]
+            names = [n for n in self.world.agents_at(loc_id)
+                     if n in self.by_name and n not in self.culled]
             if len(names) < 2:
                 continue
             rng.shuffle(names)
@@ -225,6 +335,8 @@ class Runner:
         self.transcript.write("\n### Evening reflections\n")
         day_start = (self.clock.day - 1) * TICKS_PER_DAY
         for v in sorted(self.villagers, key=lambda v: v.name):
+            if v.name in self.culled:
+                continue  # off-screen: no evening cognition
             today = [e for e in v.memory.since(day_start) if e.kind != "plan"]
             top = sorted(today, key=lambda e: (-e.importance, e.id))[:18]
             top.sort(key=lambda e: e.id)
