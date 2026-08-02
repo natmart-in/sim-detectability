@@ -34,6 +34,11 @@ class Runner:
         self.out = Path(out_dir)
         self.out.mkdir(parents=True, exist_ok=True)
         self.run_id = run_id or self.out.name
+        # Snapshot the config so any archived run can be replayed from its dir
+        # alone (replay = same config + llm_log.jsonl -> byte-identical logs).
+        with open(self.out / "config_snapshot.json", "w", encoding="utf-8") as fh:
+            json.dump(config, fh, indent=2, sort_keys=True)
+            fh.write("\n")
 
         self.rng = RngHub(config["seed"])
         self.clock = SimClock()

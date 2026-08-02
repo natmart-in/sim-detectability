@@ -6,11 +6,18 @@ cache-hit or freshly generated in later phases). Each packet gets an id and
 its provenance is recorded in the god log — visible to the referee only,
 never to agents.
 """
+import hashlib
+import json
 from dataclasses import dataclass
 
 from .clock import SimClock
 from .godlog import GodLog
 from .world import World
+
+
+def content_hash(content) -> str:
+    blob = json.dumps(content, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:12]
 
 
 @dataclass
@@ -57,9 +64,12 @@ class Perception:
         )
         text = " ".join(parts)
 
-        pieces = [{"fact_key": f"loc:{loc.id}:desc", "provenance": "eager"}]
-        pieces += [{"fact_key": f"obj:{o.id}", "provenance": "eager"} for o in objects]
-        pieces += [{"fact_key": f"presence:{p}", "provenance": "eager"} for p in people]
+        pieces = [{"fact_key": f"loc:{loc.id}:desc", "provenance": "eager",
+                   "h": content_hash(loc.description)}]
+        pieces += [{"fact_key": f"obj:{o.id}", "provenance": "eager",
+                    "h": content_hash([o.description, o.state])} for o in objects]
+        pieces += [{"fact_key": f"presence:{p}", "provenance": "eager",
+                    "h": content_hash(p)} for p in people]
         self._log(oid, agent, f"location:{loc.id}", pieces)
         return ObservationPacket(id=oid, agent=agent, tick=self.clock.tick, text=text)
 
@@ -70,7 +80,8 @@ class Perception:
         text = (f"[{oid}] {self.clock.time_label()}. At {loc.name} you read "
                 f"{doc.title}. It says: {doc.content}")
         self._log(oid, agent, f"document:{doc_id}",
-                  [{"fact_key": f"doc:{doc_id}:content", "provenance": "eager"}])
+                  [{"fact_key": f"doc:{doc_id}:content", "provenance": "eager",
+                    "h": content_hash(doc.content)}])
         return ObservationPacket(id=oid, agent=agent, tick=self.clock.tick, text=text)
 
     def observe_conversation(self, agent: str, partner: str,
@@ -79,6 +90,10 @@ class Perception:
         oid = self._next_id()
         text = (f"[{oid}] {self.clock.time_label()}. At {loc.name} you talked with "
                 f"{partner}: " + " / ".join(transcript_lines))
+        # Conversation content is agent-generated, not a world-fact rendering:
+        # its hash covers the transcript for audit, but the leak detector must
+        # never treat differing conversations as simulator contradictions.
         self._log(oid, agent, f"conversation:{partner}",
-                  [{"fact_key": f"conv:{agent}:{partner}", "provenance": "eager"}])
+                  [{"fact_key": f"conv:{agent}:{partner}", "provenance": "agent",
+                    "h": content_hash(transcript_lines)}])
         return ObservationPacket(id=oid, agent=agent, tick=self.clock.tick, text=text)
