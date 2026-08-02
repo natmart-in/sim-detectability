@@ -41,10 +41,12 @@ class Perception:
         self._counter += 1
         return oid
 
-    def _log(self, oid: str, agent: str, focus: str, pieces: list[dict]):
+    def _log(self, oid: str, agent: str, focus: str, pieces: list[dict], text: str):
+        # text is referee-side only (formatting audit, verdict scoring);
+        # agents receive it through the returned packet, never via this log.
         self.godlog.append(
             self.clock.tick, "observation",
-            obs_id=oid, agent=agent, focus=focus, pieces=pieces,
+            obs_id=oid, agent=agent, focus=focus, pieces=pieces, text=text,
         )
 
     def observe_location(self, agent: str) -> ObservationPacket:
@@ -73,7 +75,7 @@ class Perception:
 
         pieces += [{"fact_key": f"presence:{p}", "provenance": "eager",
                     "h": content_hash(p)} for p in people]
-        self._log(oid, agent, f"location:{loc.id}", pieces)
+        self._log(oid, agent, f"location:{loc.id}", pieces, text)
         return ObservationPacket(id=oid, agent=agent, tick=self.clock.tick, text=text)
 
     def read_document(self, agent: str, doc_id: str) -> ObservationPacket:
@@ -85,7 +87,7 @@ class Perception:
                 f"{doc.title}. It says: {content}")
         self._log(oid, agent, f"document:{doc_id}",
                   [{"fact_key": f"doc:{doc_id}:content", "provenance": prov,
-                    "h": content_hash(content)}])
+                    "h": content_hash(content)}], text)
         return ObservationPacket(id=oid, agent=agent, tick=self.clock.tick, text=text)
 
     def observe_conversation(self, agent: str, partner: str,
@@ -99,5 +101,20 @@ class Perception:
         # never treat differing conversations as simulator contradictions.
         self._log(oid, agent, f"conversation:{partner}",
                   [{"fact_key": f"conv:{agent}:{partner}", "provenance": "agent",
-                    "h": content_hash(transcript_lines)}])
+                    "h": content_hash(transcript_lines)}], text)
+        return ObservationPacket(id=oid, agent=agent, tick=self.clock.tick, text=text)
+
+    def observe_interview(self, agent: str, partner: str, lines: list[str],
+                          extra_pieces: list[dict] | None = None) -> ObservationPacket:
+        """Like observe_conversation, but may carry world-fact pieces — e.g.
+        a recollection served from the history store (O2), so the referee can
+        trace contradictory recollections to their fact key."""
+        loc = self.world.locations[self.world.agent_positions[agent]]
+        oid = self._next_id()
+        text = (f"[{oid}] {self.clock.time_label()}. At {loc.name} you asked "
+                f"{partner} a question: " + " / ".join(lines))
+        pieces = [{"fact_key": f"conv:{agent}:{partner}", "provenance": "agent",
+                   "h": content_hash(lines)}]
+        pieces += extra_pieces or []
+        self._log(oid, agent, f"interview:{partner}", pieces, text)
         return ObservationPacket(id=oid, agent=agent, tick=self.clock.tick, text=text)

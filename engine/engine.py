@@ -15,6 +15,8 @@ from agents.memory import MemoryStream
 from agents.villager import Villager
 
 from agents.brain import routine_to_plan
+from agents.investigator import InvestigatorLLMBrain, ScriptedInvestigatorBrain
+from agents.memory import tokenize
 
 from .clock import TICKS_PER_DAY, SimClock
 from .facts import FactStore, LLMGenerator, ProceduralGenerator
@@ -25,6 +27,8 @@ from .perception import Perception, content_hash
 from .rng import RngHub
 
 READING_WORDS = ("read", "record", "catalog", "research", "ledger", "archive", "marking")
+PAST_WORDS = {"flood", "before", "ago", "founded", "founding", "history", "past",
+              "childhood", "young", "remember", "old", "used", "once", "originally"}
 
 
 def slug(name: str) -> str:
@@ -113,6 +117,34 @@ class Runner:
 
         self.doc_read_chance = config.get("doc_read_chance", 0.25)
 
+        # ---- investigator (Phase 4) -------------------------------------
+        inv_cfg = config.get("investigator") or {}
+        self.investigator_name = inv_cfg.get("agent")
+        self.inv_every = inv_cfg.get("action_every_ticks", 2)
+        self.inv_variant = inv_cfg.get("variant", "primed")
+        self._inv_note: dict | None = None   # {"doc_id", "location"}
+        self._inv_note_checks: list[int] = []
+        self._prior_credence = None
+        if self.investigator_name:
+            if self.investigator_name not in self.by_name:
+                raise ValueError(f"investigator {self.investigator_name!r} not in roster")
+            inv = self.by_name[self.investigator_name]
+            if self.llm_mode == "scripted":
+                inv.brain = ScriptedInvestigatorBrain(
+                    self.rng.stream("investigator"), inv.brain)
+            else:
+                inv_brain = InvestigatorLLMBrain(
+                    self.llm,
+                    model=llm_cfg.get("investigator_model",
+                                      llm_cfg.get("villager_model", "claude-sonnet-5")),
+                    efforts=llm_cfg.get("efforts", {}),
+                    max_tokens=llm_cfg.get("max_tokens", {}),
+                    variant=self.inv_variant,
+                )
+                inv_brain.bind_world(self.world)
+                inv.brain = inv_brain
+            (self.out / "journals").mkdir(exist_ok=True)
+
         d = config.get("dialogue", {})
         self.dlg_base_chance = d.get("base_chance", 0.10)
         self.dlg_social_chance = d.get("social_chance", 0.35)
@@ -154,6 +186,8 @@ class Runner:
         self.dialogue_phase()
         if self.clock.is_day_end():
             self.evening_reflections()
+            if self.investigator_name and self.investigator_name not in self.culled:
+                self.write_journal()
         self.godlog.append(
             self.clock.tick, "tick_end",
             positions={k: v for k, v in sorted(self.world.agent_positions.items())},
@@ -282,6 +316,145 @@ class Runner:
                 doc = self.rng.stream("docs").choice(docs)
                 obs = self.perception.read_document(v.name, doc.id)
                 v.memory.add(tick, "document", obs.text, obs_ids=[obs.id])
+
+        if (v.name == self.investigator_name
+                and self.clock.tick_of_day % self.inv_every == 0):
+            self.investigator_turn(v, step)
+
+    # ---------------------------------------------------- investigator
+
+    def investigator_turn(self, v: Villager, step):
+        pos = self.world.agent_positions[v.name]
+        loc = self.world.locations[pos]
+        docs = self.world.documents_at(pos)
+        people = [n for n in self.world.agents_at(pos)
+                  if n != v.name and n in self.by_name and n not in self.culled]
+        note = self._inv_note
+        context = {
+            "time_label": self.clock.time_label(),
+            "location_name": loc.name,
+            "location_id": pos,
+            "activity": step.activity,
+            "docs_here": ", ".join(f"{d.id} ({d.title})" for d in docs) or "(none)",
+            "people_here": ", ".join(people) or "(none)",
+            "note_line": (f"You left a sealed note at {self.world.locations[note['location']].name}."
+                          if note else "You have not left a note anywhere yet."),
+            "memory_lines": "\n".join(
+                f"- {e.text}" for e in v.memory.retrieve(
+                    "odd anomaly record note question changed", self.clock.tick, k=8)),
+            "location_ids": ", ".join(sorted(self.world.locations)),
+            # scripted-policy extras
+            "day": self.clock.day,
+            "note_exists": note is not None,
+            "note_location": note["location"] if note else None,
+            "note_checked_today": bool(note) and any(
+                t // TICKS_PER_DAY == self.clock.day - 1 for t in self._inv_note_checks),
+        }
+        action = v.brain.decide_action(v.spec, context)
+        self.execute_investigator_action(v, action, docs, people, pos)
+
+    def execute_investigator_action(self, v, action, docs, people, pos):
+        tick = self.clock.tick
+        kind = action.get("action", "observe")
+        doc_ids = {d.id for d in docs}
+
+        if kind == "reread_document" and action.get("doc") in doc_ids:
+            obs = self.perception.read_document(v.name, action["doc"])
+            v.memory.add(tick, "document", obs.text, obs_ids=[obs.id])
+        elif kind == "interview" and action.get("villager") in people:
+            self.conduct_interview(v, self.by_name[action["villager"]],
+                                   str(action.get("question", "How have things been?")))
+        elif kind == "goto" and action.get("location") in self.world.locations \
+                and action["location"] != pos:
+            step = v.plan_step_at(self.clock.tick_of_day)
+            step.location = action["location"]
+            self.godlog.append(tick, "inv_goto", agent=v.name, to=action["location"])
+        elif kind == "leave_note" and self._inv_note is None:
+            text = str(action.get("text") or "Nothing has moved here.")
+            doc_id = f"note_{slug(v.name)}"
+            from .world import Document
+            self.world.add_document(Document(
+                id=doc_id, title=f"a sealed note left by {v.first_name}",
+                location_id=pos, content=text))
+            self.facts.author(f"doc:{doc_id}:content", text)
+            self.godlog.append(tick, "world_change", fact_key=f"doc:{doc_id}:content",
+                               cause=f"{v.name} left a sealed note")
+            self._inv_note = {"doc_id": doc_id, "location": pos}
+            v.memory.add(tick, "note",
+                         f"{self.clock.time_label()}. I left a sealed note at "
+                         f"{self.world.locations[pos].name}. It reads: {text}")
+        elif kind == "check_note" and self._inv_note \
+                and self._inv_note["location"] == pos:
+            obs = self.perception.read_document(v.name, self._inv_note["doc_id"])
+            self._inv_note_checks.append(tick)
+            v.memory.add(tick, "document", obs.text, obs_ids=[obs.id])
+        else:
+            obs = self.perception.observe_location(v.name)
+            v.memory.add(tick, "observation", obs.text, obs_ids=[obs.id])
+
+    def conduct_interview(self, inv: Villager, target: Villager, question: str):
+        tick = self.clock.tick
+        loc = self.world.locations[self.world.agent_positions[inv.name]]
+        q_line = f"{inv.first_name}: {question}"
+
+        memory_texts = [e.text for e in target.memory.retrieve(question, tick, k=5)]
+        extra_pieces = []
+        qtokens = tokenize(question)
+        if self.facts.o2 and (qtokens & PAST_WORDS):
+            # O2: asked about the deep past, the world invents a recollection
+            topic = "-".join(sorted(qtokens - PAST_WORDS)[:3]) or "general"
+            key = f"history:{slug(target.name)}:{topic}"
+            recall, prov = self.facts.get(key, trigger="interview")
+            memory_texts = [f"You recall: {recall}"] + memory_texts
+            extra_pieces = [{"fact_key": key, "provenance": prov,
+                             "h": content_hash(recall)}]
+
+        answer = target.brain.utterance(
+            target.spec, inv.name, loc.name, self.clock.time_label(),
+            memory_texts, [q_line])
+        lines = [q_line, f"{target.first_name}: {answer}"]
+
+        obs = self.perception.observe_interview(inv.name, target.name, lines, extra_pieces)
+        inv.memory.add(tick, "interview", obs.text, obs_ids=[obs.id],
+                       participants=[target.name])
+        obs2 = self.perception.observe_conversation(target.name, inv.name, lines)
+        target.memory.add(tick, "dialogue", obs2.text, obs_ids=[obs2.id],
+                          participants=[inv.name])
+        self.transcript.write(
+            f"\n### {self.clock.time_label()} — {inv.first_name} questions "
+            f"{target.first_name} at {loc.name}\n"
+            + "\n".join(f"> {ln}" for ln in lines) + "\n"
+        )
+
+    def write_journal(self):
+        v = self.by_name[self.investigator_name]
+        day = self.clock.day
+        evidence_base = [e for e in v.memory.entries
+                         if e.kind in ("document", "interview", "note", "journal")]
+        day_start = (day - 1) * TICKS_PER_DAY
+        today_obs = [e for e in v.memory.since(day_start) if e.kind == "observation"]
+        entries = (evidence_base + today_obs[-8:])[-40:]
+        entries.sort(key=lambda e: e.id)
+
+        result = v.brain.journal(v.spec, day, entries, self._prior_credence)
+        if result.get("credence") is not None:
+            self._prior_credence = result["credence"]
+        record = {"day": day, "agent": v.name, "variant": self.inv_variant, **result}
+        with open(self.out / "journals" / f"day{day}.json", "w", encoding="utf-8") as fh:
+            json.dump(record, fh, indent=2, sort_keys=True)
+            fh.write("\n")
+        self.godlog.append(self.clock.tick, "journal", agent=v.name, day=day,
+                           credence=result.get("credence"),
+                           evidence=result.get("evidence", []),
+                           parse_error=bool(result.get("parse_error")))
+        claims = "; ".join(ev.get("claim", "") for ev in result.get("evidence", [])) or "nothing of note"
+        v.memory.add(self.clock.tick, "journal",
+                     f"My journal, day {day}: confidence {result.get('credence')}. "
+                     f"Noted: {claims}.")
+        self.transcript.write(
+            f"\n### {v.name}'s journal (day {day})\n"
+            f"- credence: {result.get('credence')}\n- evidence: {claims}\n"
+        )
 
     def dialogue_phase(self):
         rng = self.rng.stream("dialogue")

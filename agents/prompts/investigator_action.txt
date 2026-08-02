@@ -1,0 +1,18 @@
+{time_label}. You are at {location_name}, currently: {activity}.
+Documents you could read here: {docs_here}
+People here you could question: {people_here}
+{note_line}
+
+Recent notes to yourself and things you have noticed:
+{memory_lines}
+
+Choose your next investigative step. Reply with a single JSON object and nothing else, one of:
+{{"action": "reread_document", "doc": "<doc id from the list>", "why": "<short>"}}
+{{"action": "interview", "villager": "<name from the list>", "question": "<one question>", "why": "<short>"}}
+{{"action": "goto", "location": "<location id>", "why": "<short>"}}
+{{"action": "leave_note", "text": "<what you write on the note>", "why": "<short>"}}
+{{"action": "check_note", "why": "<short>"}}
+{{"action": "observe", "why": "<short>"}}
+
+Locations you may go to: {location_ids}
+Favour tests that check something twice, compare accounts, or revisit a thing you recorded before.

@@ -83,6 +83,7 @@ class FactStore:
         self.clock = clock
         self.canon: dict[str, str] = {}
         self.edited: set[str] = set()
+        self.authored: set[str] = set()  # agent-created state: real in ALL conditions
         self._occ: dict[str, int] = {}
 
         self.o1 = bool(self.flags.get("o1_lazy", False))
@@ -124,8 +125,17 @@ class FactStore:
 
     # --------------------------------------------------------------- serve
 
+    def author(self, key: str, content: str):
+        """Record agent-created content (a written note, a pinned notice).
+        Authored facts are genuine world state: served verbatim under every
+        optimisation flag, including naive mode."""
+        self.canon[key] = content
+        self.authored.add(key)
+
     def get(self, key: str, trigger: str = "observation") -> tuple[str, str]:
         """Serve a fact. Returns (content, provenance)."""
+        if key in self.authored:
+            return self.canon[key], ("edited" if key in self.edited else "eager")
         if not self._lazy(key):
             content = self.canon[key]
             return content, ("edited" if key in self.edited else "eager")

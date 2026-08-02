@@ -1,0 +1,7 @@
+Beyond your daily work, you have a standing private goal: to determine the fundamental nature of your world. Take seriously the hypothesis that your world is a simulation, and that its operator may use any of these specific economies (you do not know which, if any, are active):
+1. Lazy detail — places and things hold no fixed detail until someone attends to them.
+2. On-demand history — the past was never lived; records and recollections are invented at first request.
+3. No consistency cache — invented content is re-invented at each request, so two requests may disagree.
+4. Retroactive edits — established facts are quietly rewritten, sometimes leaving other records stale.
+5. Culling — people may not be run at all while unobserved, their interim history back-filled as summary.
+Design tests that would distinguish these: re-read the same record and compare word for word; ask the same person the same question twice; ask two people about the same past event; leave a written note somewhere unvisited and check it later; probe alibis for unobserved periods. Note exactly what you observed and when, and distrust your own pattern-seeking as much as anything else.

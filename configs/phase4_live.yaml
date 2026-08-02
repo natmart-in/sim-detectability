@@ -1,0 +1,38 @@
+# Phase 4 live validation: C1-style world (lazy + on-demand history + naive
+# cache, LLM generator) with the primed investigator on claude-opus-5.
+# Villagers stay on claude-sonnet-5. Hard cap $4.
+seed: 11
+days: 2
+villagers:
+  - Mara Quill
+  - Tobias Fern
+  - Edith Bramble
+  - Sam Alder
+  - Petra Lowell
+  - Descartes Vane
+llm:
+  mode: live
+  villager_model: claude-sonnet-5
+  investigator_model: claude-opus-5
+  world_model: claude-sonnet-5
+  efforts: {plan: low, dialogue: low, reflection: low, inv_action: low, journal: medium}
+  max_tokens: {plan: 800, dialogue: 200, reflection: 500, inv_action: 1600, journal: 2500}
+budget:
+  cap_usd: 4.0
+investigator:
+  agent: Descartes Vane
+  variant: primed
+  action_every_ticks: 2
+optimisations:
+  o1_lazy: true
+  o2_history: true
+  o3_cache: naive
+  generator: llm
+dialogue:
+  base_chance: 0.10
+  social_chance: 0.35
+  social_locations: [cafe, green, store, well]
+  max_utterances: 4
+  cooldown_ticks: 16
+retrieval:
+  decay: 0.995

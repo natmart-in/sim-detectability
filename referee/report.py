@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 from .leak_detector import detect
+from .verdict import score
 
 
 def main(argv=None):
@@ -18,6 +19,8 @@ def main(argv=None):
         sys.exit("usage: python -m referee.report <run_dir>")
     run_dir = Path(args[0])
     report = detect(run_dir)
+    if (run_dir / "journals").exists():
+        report["verdict"] = score(run_dir)
     out = run_dir / "referee_report.json"
     with open(out, "w", encoding="utf-8") as fh:
         json.dump(report, fh, indent=2, sort_keys=True)
