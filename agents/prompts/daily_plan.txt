@@ -1,0 +1,14 @@
+It is the morning of day {day} in Littlefield.
+
+Your usual habits:
+{routine_lines}
+
+Places you can go (use the id in brackets):
+{location_lines}
+{yesterday_block}
+Recent things on your mind:
+{memory_lines}
+
+Write your plan for today as a JSON array and nothing else. Each item:
+{{"start": <hour, 6-21>, "end": <hour, 7-22>, "activity": "<short phrase>", "location": "<location id>"}}
+Cover the whole day from 6 to 22 with 4 to 8 items. Keep close to your usual habits, with small natural variations.

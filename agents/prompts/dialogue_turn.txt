@@ -1,0 +1,9 @@
+{time_label}. You are at {location_name} with {partner}.
+
+Things on your mind:
+{memory_lines}
+
+Conversation so far:
+{dialogue_lines}
+
+Say your next line to {partner}. One or two sentences, under 35 words, plain speech, no quotation marks, no stage directions. Mention real people, places or happenings when it feels natural.

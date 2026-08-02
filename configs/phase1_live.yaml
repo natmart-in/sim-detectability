@@ -1,0 +1,28 @@
+# Phase 1 acceptance config: 5 agents, 2 sim-days, live LLM (claude-sonnet-5),
+# hard budget cap enforced in code. Used to measure real cost per agent-day.
+seed: 11
+days: 2
+villagers:
+  - Mara Quill
+  - Tobias Fern
+  - Edith Bramble
+  - Sam Alder
+  - Petra Lowell
+llm:
+  mode: live
+  villager_model: claude-sonnet-5
+  efforts: {plan: low, dialogue: low, reflection: low}
+  max_tokens: {plan: 800, dialogue: 200, reflection: 500}
+budget:
+  cap_usd: 5.0
+  # USD per MTok; standard rates (intro pricing through 2026-08-31 will bill less)
+  pricing:
+    claude-sonnet-5: {input: 3.00, output: 15.00, cache_read: 0.30, cache_write: 3.75}
+dialogue:
+  base_chance: 0.10
+  social_chance: 0.35
+  social_locations: [cafe, green, store, well]
+  max_utterances: 4
+  cooldown_ticks: 16
+retrieval:
+  decay: 0.995

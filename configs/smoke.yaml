@@ -1,0 +1,20 @@
+# Phase 0 acceptance config: no-LLM smoke world, 100 ticks, fully deterministic.
+seed: 7
+ticks: 100
+days: 2   # ignored when ticks is set
+villagers:
+  - Mara Quill
+  - Tobias Fern
+  - Edith Bramble
+  - Sam Alder
+  - Petra Lowell
+llm:
+  mode: scripted
+dialogue:
+  base_chance: 0.10
+  social_chance: 0.35
+  social_locations: [cafe, green, store, well]
+  max_utterances: 4
+  cooldown_ticks: 16
+retrieval:
+  decay: 0.995

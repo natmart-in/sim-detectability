@@ -1,0 +1,6 @@
+It is the evening of day {day}. Look back over your day.
+
+Today you remember:
+{memory_lines}
+
+Write a short first-person reflection, 3 to 5 sentences: what stood out, how you feel about it, and anything you mean to do tomorrow.

@@ -1,0 +1,84 @@
+"""Perception API — the ONLY door between the simulator layer and agents.
+
+Every observation is rendered through one fixed template, identical in form
+regardless of how the underlying content came to exist (eagerly computed now;
+cache-hit or freshly generated in later phases). Each packet gets an id and
+its provenance is recorded in the god log — visible to the referee only,
+never to agents.
+"""
+from dataclasses import dataclass
+
+from .clock import SimClock
+from .godlog import GodLog
+from .world import World
+
+
+@dataclass
+class ObservationPacket:
+    id: str
+    agent: str
+    tick: int
+    text: str
+
+
+class Perception:
+    def __init__(self, world: World, clock: SimClock, godlog: GodLog):
+        self.world = world
+        self.clock = clock
+        self.godlog = godlog
+        self._counter = 0
+
+    def _next_id(self) -> str:
+        oid = f"obs-{self._counter:06d}"
+        self._counter += 1
+        return oid
+
+    def _log(self, oid: str, agent: str, focus: str, pieces: list[dict]):
+        self.godlog.append(
+            self.clock.tick, "observation",
+            obs_id=oid, agent=agent, focus=focus, pieces=pieces,
+        )
+
+    def observe_location(self, agent: str) -> ObservationPacket:
+        loc = self.world.locations[self.world.agent_positions[agent]]
+        objects = self.world.objects_at(loc.id)
+        docs = self.world.documents_at(loc.id)
+        people = [a for a in self.world.agents_at(loc.id) if a != agent]
+        oid = self._next_id()
+
+        parts = [f"[{oid}] {self.clock.time_label()}.",
+                 f"You are at {loc.name}.", loc.description]
+        if objects:
+            parts.append("You can see " + ", ".join(o.name for o in objects) + ".")
+        if docs:
+            parts.append("Available to read here: " + ", ".join(d.title for d in docs) + ".")
+        parts.append(
+            "Also here: " + ", ".join(people) + "." if people else "No one else is here."
+        )
+        text = " ".join(parts)
+
+        pieces = [{"fact_key": f"loc:{loc.id}:desc", "provenance": "eager"}]
+        pieces += [{"fact_key": f"obj:{o.id}", "provenance": "eager"} for o in objects]
+        pieces += [{"fact_key": f"presence:{p}", "provenance": "eager"} for p in people]
+        self._log(oid, agent, f"location:{loc.id}", pieces)
+        return ObservationPacket(id=oid, agent=agent, tick=self.clock.tick, text=text)
+
+    def read_document(self, agent: str, doc_id: str) -> ObservationPacket:
+        doc = self.world.documents[doc_id]
+        loc = self.world.locations[self.world.agent_positions[agent]]
+        oid = self._next_id()
+        text = (f"[{oid}] {self.clock.time_label()}. At {loc.name} you read "
+                f"{doc.title}. It says: {doc.content}")
+        self._log(oid, agent, f"document:{doc_id}",
+                  [{"fact_key": f"doc:{doc_id}:content", "provenance": "eager"}])
+        return ObservationPacket(id=oid, agent=agent, tick=self.clock.tick, text=text)
+
+    def observe_conversation(self, agent: str, partner: str,
+                             transcript_lines: list[str]) -> ObservationPacket:
+        loc = self.world.locations[self.world.agent_positions[agent]]
+        oid = self._next_id()
+        text = (f"[{oid}] {self.clock.time_label()}. At {loc.name} you talked with "
+                f"{partner}: " + " / ".join(transcript_lines))
+        self._log(oid, agent, f"conversation:{partner}",
+                  [{"fact_key": f"conv:{agent}:{partner}", "provenance": "eager"}])
+        return ObservationPacket(id=oid, agent=agent, tick=self.clock.tick, text=text)

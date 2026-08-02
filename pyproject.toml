@@ -1,0 +1,17 @@
+[project]
+name = "sim-detectability"
+version = "0.1.0"
+description = "The detectability-ceiling experiment: can an agent inside a simulation detect simulator optimisations?"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=0.116.0",
+    "pyyaml>=6.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
