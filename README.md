@@ -12,7 +12,7 @@ Full design: [PLAN.md](PLAN.md). Pre-registered hypotheses:
 | Phase | State |
 |---|---|
 | 0 — Scaffold + deterministic smoke world | **done** (accept test: `tests/test_determinism.py`) |
-| 1 — Living village (eager mode) | **done**, pending live-LLM acceptance run + human transcript review |
+| 1 — Living village (eager mode) | **done** — live acceptance run passed (retrieval 19/20; $0.0246/agent-day; extrapolates to ~$21 villager-layer cost for the primary sweep); human transcript review pending |
 | 2 — Ground-truth plumbing (replay, leak detector) | not started |
 | 3 — Optimisation suite (O1–O5) | not started |
 | 4 — Investigator (Descartes) | not started |
