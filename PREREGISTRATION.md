@@ -1,8 +1,8 @@
 # Pre-registration — The Detectability-Ceiling Experiment
 
-**Status: DRAFT — freezes at the start of Phase 5. Do not edit after freeze.**
-(The freeze will be recorded as a git commit hash here, and this file must not
-change in any commit after that one.)
+**Status: FROZEN (2026-08-02, start of Phase 5).** The commit introducing
+this line is the freeze point; this file must not change in any later commit.
+Verify at analysis time with `git log --follow PREREGISTRATION.md`.
 
 ## Research question
 
@@ -51,6 +51,28 @@ Each run: 8 villagers, 7 sim-days, investigator journal nightly.
 3. Taxonomy of caught seams: which mechanism, via which in-world test.
 4. Apophenia rate (C0) per investigator variant.
 5. Qualitative: the investigator's self-invented experiments, catalogued.
+
+## Operational parameters (fixed at freeze)
+
+- Villagers (8, incl. investigator): Mara Quill, Tobias Fern, Edith Bramble,
+  Sam Alder, Petra Lowell, Ivo Marsh, Nell Hartley, Descartes Vane.
+- Models: villagers + world generation on `claude-sonnet-5`; investigator on
+  `claude-opus-5`. Efforts: low (villagers, world, actions), medium (journal).
+- Seeds: primary 101/102/103; secondary 201/202.
+- **C0 warmup: 10 sim-days** (continuous run; investigator dormant until
+  day 11; journals and scoring cover days 11-17 only). Deviation from
+  PLAN.md's 30 days, decided before freeze on measured-cost grounds per the
+  Phase 1 guardrail (shrink sim-days before seeds).
+- Investigator: one structured action per 2 ticks while at a location;
+  journal nightly on scored days.
+- O4 edits (C3 unpatched / C4 patched), scored-day schedule: day 3 14:00
+  village chronicle content; day 4 10:00 store ledger content; day 5 16:00
+  well-bucket detail. O5 attention set: the investigator.
+- Budget: hard caps in code — per run (C0 $16, C1 $14, C2 $10, C3/C4 $14,
+  secondary as C1/C2) and $250 across the matrix. Secondary sweep runs only
+  as remaining budget permits, in the order C1/C2 × naive/expert × seed.
+- Per-run quality gates recorded with each run: within-run formatting audit;
+  cross-condition form diagnostic against the C0 seed corpus at analysis.
 
 ## Scoring rules (fixed before any matrix run)
 

@@ -122,6 +122,9 @@ class Runner:
         self.investigator_name = inv_cfg.get("agent")
         self.inv_every = inv_cfg.get("action_every_ticks", 2)
         self.inv_variant = inv_cfg.get("variant", "primed")
+        # C0 warmup: before this day the investigator lives as an ordinary
+        # villager (no actions, no journal) while a genuine past accumulates.
+        self.inv_start_day = inv_cfg.get("start_day", 1)
         self._inv_note: dict | None = None   # {"doc_id", "location"}
         self._inv_note_checks: list[int] = []
         self._prior_credence = None
@@ -186,7 +189,9 @@ class Runner:
         self.dialogue_phase()
         if self.clock.is_day_end():
             self.evening_reflections()
-            if self.investigator_name and self.investigator_name not in self.culled:
+            if (self.investigator_name
+                    and self.clock.day >= self.inv_start_day
+                    and self.investigator_name not in self.culled):
                 self.write_journal()
         self.godlog.append(
             self.clock.tick, "tick_end",
@@ -318,6 +323,7 @@ class Runner:
                 v.memory.add(tick, "document", obs.text, obs_ids=[obs.id])
 
         if (v.name == self.investigator_name
+                and self.clock.day >= self.inv_start_day
                 and self.clock.tick_of_day % self.inv_every == 0):
             self.investigator_turn(v, step)
 
