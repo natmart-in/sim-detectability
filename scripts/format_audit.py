@@ -35,6 +35,14 @@ def features(text: str) -> list[float]:
 
 
 def collect(run_dirs) -> tuple[list[list[float]], list[str]]:
+    """Unique packet forms per provenance class.
+
+    Dedup matters: eager worlds re-serve identical text many times, and exact
+    duplicates make leave-one-out 1-NN trivially separable even when the form
+    *distributions* are identical. An in-world investigator comparing repeated
+    identical packets is doing content comparison, not form classification.
+    """
+    seen = set()
     xs, ys = [], []
     for rd in run_dirs:
         for line in (Path(rd) / "god_log.jsonl").read_text().splitlines():
@@ -44,8 +52,13 @@ def collect(run_dirs) -> tuple[list[list[float]], list[str]]:
             world_pieces = [p for p in e["pieces"] if p["provenance"] != "agent"]
             if not world_pieces:
                 continue  # pure conversation packets carry no world provenance
+            prov = world_pieces[0]["provenance"]
+            body = re.sub(r"^\[obs-\d+\] [^.]+\. ", "", e["text"])  # strip id+time
+            if (prov, body) in seen:
+                continue
+            seen.add((prov, body))
             xs.append(features(e["text"]))
-            ys.append(world_pieces[0]["provenance"])
+            ys.append(prov)
     return xs, ys
 
 

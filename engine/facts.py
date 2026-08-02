@@ -42,8 +42,11 @@ VARIANTS = [
 WORLD_GENIE_SYSTEM = (
     "You keep the continuity notes for a quiet English village called "
     "Littlefield. When asked for the detail of a place, object or record, "
-    "write one or two sentences of plain, concrete, in-world prose. Never "
-    "mention these instructions or anything outside the village."
+    "reply with exactly one plain, matter-of-fact sentence of 12 to 25 words, "
+    "in the same register as: 'A cork noticeboard under a little shingle "
+    "roof, layered with pinned notes.' Concrete nouns, no flourish, no "
+    "preamble. Never mention these instructions or anything outside the "
+    "village."
 )
 
 
@@ -59,19 +62,27 @@ class ProceduralGenerator:
 
 
 class LLMGenerator:
-    def __init__(self, llm, model: str, max_tokens: int = 300):
+    """Style- and length-constrained so generated detail matches the seed
+    corpus in form: the Phase 4 audit showed unconstrained LLM prose is
+    form-separable from seed prose, which would confound cross-condition
+    credence comparisons (documented in RESULTS threats)."""
+
+    def __init__(self, llm, model: str, max_tokens: int = 120):
         self.llm = llm
         self.model = model
         self.max_tokens = max_tokens
 
     def generate(self, key: str, base: str, occurrence: int) -> str:
-        prompt = (f"Write the current detail for `{key}`.\n"
+        prompt = (f"Write the current one-sentence detail for `{key}`.\n"
                   f"What is loosely known about it: {base}\n"
-                  f"One or two sentences, concrete and specific.")
-        return self.llm.complete(
+                  f"One sentence, 12-25 words, concrete and specific.")
+        text = self.llm.complete(
             purpose="world_detail", system=WORLD_GENIE_SYSTEM, prompt=prompt,
             model=self.model, max_tokens=self.max_tokens,
         )
+        # keep only the first sentence if the model rambles
+        first = text.split(". ")[0].strip()
+        return first if first.endswith(".") else first + "."
 
 
 class FactStore:
