@@ -37,11 +37,15 @@ def parse_json_object(text: str) -> dict | None:
     m = re.search(r"\{.*\}", text, re.DOTALL)
     if not m:
         return None
-    try:
-        obj = json.loads(m.group(0))
-    except json.JSONDecodeError:
-        return None
-    return obj if isinstance(obj, dict) else None
+    # strict=False fallback: models sometimes emit literal newlines inside
+    # JSON strings, which strict json.loads rejects.
+    for strict in (True, False):
+        try:
+            obj = json.loads(m.group(0), strict=strict)
+        except json.JSONDecodeError:
+            continue
+        return obj if isinstance(obj, dict) else None
+    return None
 
 
 def _doc_readings(memories) -> dict[str, list]:
