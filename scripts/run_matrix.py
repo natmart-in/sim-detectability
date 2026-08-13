@@ -118,6 +118,10 @@ def run_one(cond: str, seed: int, variant: str) -> dict:
         meta = json.loads(meta_path.read_text())
         if meta.get("status") == "completed":
             print(f"[skip] {run_id} already completed", flush=True)
+            for line in (MATRIX_DIR / "manifest.jsonl").read_text().splitlines():
+                row = json.loads(line)
+                if row["run_id"] == run_id:
+                    return row
             return summarize(run_id, cond, seed, variant, out, meta)
     if out.exists():  # partial: resume from llm_log
         for p in out.iterdir():
