@@ -15,6 +15,7 @@ this way — documented deviation).
 """
 import hashlib
 import json
+import time
 from pathlib import Path
 
 # USD per million tokens. Standard (non-introductory) rates as of 2026-08;
@@ -130,7 +131,7 @@ class LLMClient:
             )
         if self._anthropic is None:
             import anthropic
-            self._anthropic = anthropic.Anthropic()
+            self._anthropic = anthropic.Anthropic(max_retries=8)
         kwargs = dict(
             model=model,
             max_tokens=max_tokens,
@@ -139,7 +140,21 @@ class LLMClient:
         )
         if effort:
             kwargs["output_config"] = {"effort": effort}
-        resp = self._anthropic.messages.create(**kwargs)
+        import anthropic
+        for attempt in range(4):
+            try:
+                resp = self._anthropic.messages.create(**kwargs)
+                break
+            except (anthropic.APIStatusError, anthropic.APIConnectionError) as e:
+                # The SDK already retried short blips (max_retries=8); this
+                # outer loop waits out sustained overload windows. Sleeping
+                # wall-clock leaves no in-world seam: logs carry sim ticks only.
+                status = getattr(e, "status_code", None)
+                retryable = (isinstance(e, anthropic.APIConnectionError)
+                             or status in (429, 500, 502, 503, 504, 529))
+                if not retryable or attempt == 3:
+                    raise
+                time.sleep(90 * (attempt + 1))
         if resp.stop_reason == "refusal":
             raise LLMError(f"model refused a {purpose} completion")
         text = "".join(b.text for b in resp.content if b.type == "text").strip()

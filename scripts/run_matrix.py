@@ -172,16 +172,25 @@ def main():
     MATRIX_DIR.mkdir(parents=True, exist_ok=True)
 
     jobs = list(PRIMARY) + (list(SECONDARY) if args.secondary else [])
-    for cond, seed, variant in jobs:
-        if global_spent() >= GLOBAL_CAP_USD - 2.0:
-            print(f"[halt] global budget cap reached (${global_spent():.2f}); "
-                  f"remaining jobs not started", flush=True)
+    for sweep_pass in range(1, 4):
+        failed = []
+        for cond, seed, variant in jobs:
+            if global_spent() >= GLOBAL_CAP_USD - 2.0:
+                print(f"[halt] global budget cap reached (${global_spent():.2f}); "
+                      f"remaining jobs not started", flush=True)
+                failed = []
+                break
+            try:
+                run_one(cond, seed, variant)
+            except Exception as e:  # keep the sweep going; the run can be resumed
+                print(f"[fail] {cond}-{variant}-seed{seed}: {type(e).__name__}: {e}",
+                      flush=True)
+                failed.append((cond, seed, variant))
+        if not failed:
             break
-        try:
-            run_one(cond, seed, variant)
-        except Exception as e:  # keep the sweep going; the run can be resumed
-            print(f"[fail] {cond}-{variant}-seed{seed}: {type(e).__name__}: {e}",
-                  flush=True)
+        jobs = failed
+        print(f"[pass] retrying {len(failed)} failed run(s) "
+              f"(pass {sweep_pass + 1})", flush=True)
     print(f"[end ] total spent ${global_spent():.2f}", flush=True)
 
 
