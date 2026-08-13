@@ -171,6 +171,11 @@ class Runner:
         except BudgetExceeded as e:
             self.status = "budget_exceeded"
             self.godlog.append(self.clock.tick, "abort", reason=str(e))
+        except BaseException:
+            # Any other in-process failure (API errors, KeyboardInterrupt)
+            # must not leave a truncated run labelled complete.
+            self.status = "aborted"
+            raise
         finally:
             self.finalize(total)
 
