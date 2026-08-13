@@ -16,7 +16,7 @@ Full design: [PLAN.md](PLAN.md). Pre-registered hypotheses:
 | 2 — Ground-truth plumbing (replay, leak detector) | **done** — live run replays byte-identical with 0 live calls; injected contradiction caught; clean runs yield zero leaks |
 | 3 — Optimisation suite (O1–O5) | **done** — C1 naive regeneration leaks found by referee; C2 cached yields zero leaks; unpatched edits leave referee-locatable stale records; patched sweep leaves none; culling with generated interim summaries |
 | 4 — Investigator (Descartes) | **done** — live C1 validation: 12 claims, 8 true seams, 6 attributed, 100% citation resolution, credence 82→93; within-run format audit passes; $2.14 for the 2-day run |
-| 5 — The matrix | not started |
+| 5 — The matrix | **done** — 15/15 primary runs complete and validated (full tick counts, 7 journals each); $96.13 total; per-run archives in `archive/`; manifest: `archive/manifest.jsonl` |
 | 6 — Analysis & write-up | not started |
 
 ## Layout
